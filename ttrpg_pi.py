@@ -19,12 +19,24 @@ app = Flask(__name__)
 CONFIG_FILE = Path(__file__).parent / "config.json"
 config = {}
 
+# Semaphore to limit concurrent audio playback to 3 simultaneous sounds
+audio_semaphore = threading.Semaphore(3)
+
 def load_config():
     """Load configuration from config.json"""
     global config
-    with open(CONFIG_FILE, 'r') as f:
-        config = json.load(f)
-    print(f"Configuration loaded: {config}")
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            config = json.load(f)
+        print(f"Configuration loaded: {config}")
+    except FileNotFoundError:
+        print(f"Error: Configuration file not found at {CONFIG_FILE}")
+        print("Please ensure config.json exists in the same directory as ttrpg_pi.py")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in configuration file: {e}")
+        print("Please check the syntax of config.json")
+        raise
 
 def open_website():
     """Open the configured website in a browser on startup"""
@@ -66,22 +78,27 @@ def open_website():
 
 def play_audio(audio_file_path):
     """Play an MP3 file using mpg123 or mpg321"""
-    if not os.path.exists(audio_file_path):
-        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
-    
-    try:
-        # Try mpg123 first (recommended for Raspberry Pi)
-        subprocess.run(['mpg123', '-q', audio_file_path], check=True)
-    except FileNotFoundError:
+    # Acquire semaphore to limit concurrent playback
+    with audio_semaphore:
+        if not os.path.exists(audio_file_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+        
+        # Ensure the path is absolute and safe
+        audio_file_path = os.path.abspath(audio_file_path)
+        
         try:
-            # Try mpg321 as fallback
-            subprocess.run(['mpg321', '-q', audio_file_path], check=True)
+            # Try mpg123 first (recommended for Raspberry Pi)
+            subprocess.run(['mpg123', '-q', audio_file_path], check=True)
         except FileNotFoundError:
             try:
-                # Try ffplay as another fallback
-                subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', audio_file_path], check=True)
+                # Try mpg321 as fallback
+                subprocess.run(['mpg321', '-q', audio_file_path], check=True)
             except FileNotFoundError:
-                raise RuntimeError("No MP3 player found. Please install mpg123, mpg321, or ffmpeg.")
+                try:
+                    # Try ffplay as another fallback
+                    subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', audio_file_path], check=True)
+                except FileNotFoundError:
+                    raise RuntimeError("No MP3 player found. Please install mpg123, mpg321, or ffmpeg.")
 
 @app.route('/')
 def index():

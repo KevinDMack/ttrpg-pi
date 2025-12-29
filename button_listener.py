@@ -47,6 +47,12 @@ def play_sound(button_number):
             print(f"Button {button_number} pressed - Playing sound")
         else:
             print(f"Button {button_number} pressed - Error: {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        print(f"Button {button_number} pressed - Cannot connect to API at {API_URL}")
+        print("  → Make sure ttrpg_pi.py is running: python3 ttrpg_pi.py")
+    except requests.exceptions.Timeout:
+        print(f"Button {button_number} pressed - Request timeout")
+        print("  → API server is not responding")
     except requests.exceptions.RequestException as e:
         print(f"Button {button_number} pressed - Connection error: {e}")
 
