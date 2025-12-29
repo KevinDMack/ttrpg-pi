@@ -1,0 +1,13 @@
+{
+  "website_url": "https://owlbear.rodeo",
+  "audio_files": {
+    "1": "audio/sound1.mp3",
+    "2": "audio/sound2.mp3",
+    "3": "audio/sound3.mp3",
+    "4": "audio/sound4.mp3",
+    "5": "audio/sound5.mp3",
+    "6": "audio/sound6.mp3",
+    "7": "audio/sound7.mp3",
+    "8": "audio/sound8.mp3"
+  }
+}
