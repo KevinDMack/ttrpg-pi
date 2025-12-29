@@ -117,8 +117,8 @@ curl -X POST http://localhost:5000/play \
 
 To connect physical buttons to your Raspberry Pi:
 
-1. Wire 8 buttons to GPIO pins (with appropriate pull-down resistors)
-2. Create a script to monitor GPIO inputs and call the API when buttons are pressed
+1. Wire 8 buttons to GPIO pins (with appropriate pull-up resistors enabled in software)
+2. Use the included `button_listener.py` script, or create your own
 3. Example button script (requires `RPi.GPIO` or `gpiozero`):
 
 ```python
@@ -127,20 +127,21 @@ from gpiozero import Button
 from signal import pause
 
 # Define button pins (adjust based on your wiring)
-buttons = {
-    1: Button(2),
-    2: Button(3),
-    3: Button(4),
-    4: Button(17),
-    5: Button(27),
-    6: Button(22),
-    7: Button(10),
-    8: Button(9)
+# Using pull_up=True means you wire: button -> GPIO pin -> Ground
+button_pins = {
+    1: 2, 2: 3, 3: 4, 4: 17,
+    5: 27, 6: 22, 7: 10, 8: 9
 }
 
-# Trigger API when button is pressed
+# Create buttons with pull-up resistors
+buttons = {num: Button(pin, pull_up=True) for num, pin in button_pins.items()}
+
+# Trigger API when button is pressed (using default parameter to capture value)
+def play_sound(button_num):
+    requests.get(f'http://localhost:5000/play/{button_num}')
+
 for num, button in buttons.items():
-    button.when_pressed = lambda n=num: requests.get(f'http://localhost:5000/play/{n}')
+    button.when_pressed = lambda n=num: play_sound(n)
 
 print("Button listener started")
 pause()
@@ -165,7 +166,7 @@ sudo nano /etc/systemd/system/ttrpg-pi.service
 ```ini
 [Unit]
 Description=TTRPG Pi Server
-After=network.target
+After=network.target graphical.target
 
 [Service]
 Type=simple
@@ -173,11 +174,15 @@ User=pi
 WorkingDirectory=/home/pi/ttrpg-pi
 ExecStart=/usr/bin/python3 /home/pi/ttrpg-pi/ttrpg_pi.py
 Restart=on-failure
+RestartSec=10
 Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/pi/.Xauthority"
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 ```
+
+Note: See the included `ttrpg-pi.service` file for a ready-to-use service configuration.
 
 3. Enable and start the service:
 

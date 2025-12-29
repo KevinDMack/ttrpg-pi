@@ -9,6 +9,7 @@ import os
 import subprocess
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request
 
@@ -41,6 +42,17 @@ def load_config():
 def open_website():
     """Open the configured website in a browser on startup"""
     website_url = config.get('website_url', 'https://owlbear.rodeo')
+    
+    # Validate URL to prevent command injection
+    try:
+        parsed_url = urlparse(website_url)
+        if parsed_url.scheme not in ('http', 'https'):
+            print(f"Warning: Invalid URL scheme in config: {website_url}")
+            print("URL must start with http:// or https://")
+            return
+    except Exception as e:
+        print(f"Warning: Invalid URL in config: {website_url} - {e}")
+        return
     
     # Try to open in Chromium browser (common on Raspberry Pi)
     # Using kiosk mode for fullscreen display
@@ -147,8 +159,18 @@ def play_button(button_number):
             'message': f'No audio file configured for button {button_number}'
         }), 404
     
-    # Make path absolute
-    audio_file_path = Path(__file__).parent / audio_file_path
+    # Make path absolute and resolve it to prevent path traversal
+    base_dir = Path(__file__).parent.resolve()
+    audio_file_path = (base_dir / audio_file_path).resolve()
+    
+    # Ensure the resolved path is within the project directory (prevent path traversal)
+    try:
+        audio_file_path.relative_to(base_dir)
+    except ValueError:
+        return jsonify({
+            'error': 'Invalid audio file path',
+            'message': 'Audio file path must be within the project directory'
+        }), 400
     
     if not audio_file_path.exists():
         return jsonify({
