@@ -20,9 +20,6 @@ app = Flask(__name__)
 CONFIG_FILE = Path(__file__).parent / "config.json"
 config = {}
 
-# Semaphore to limit concurrent audio playback to 3 simultaneous sounds
-audio_semaphore = threading.Semaphore(3)
-
 # Global variable to track the currently playing music process
 current_music_process = None
 music_lock = threading.Lock()
@@ -119,10 +116,17 @@ def play_music(audio_file_path):
     # Ensure the path is absolute and safe
     audio_file_path = os.path.abspath(audio_file_path)
     
-    # Stop any currently playing music
-    stop_music()
-    
     with music_lock:
+        # Stop any currently playing music (inside the lock to avoid race conditions)
+        if current_music_process and current_music_process.poll() is None:
+            # Process is still running, terminate it
+            current_music_process.terminate()
+            try:
+                current_music_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate gracefully
+                current_music_process.kill()
+        
         try:
             # Try mpg123 first (recommended for Raspberry Pi) with infinite loop
             current_music_process = subprocess.Popen(
@@ -132,9 +136,9 @@ def play_music(audio_file_path):
             )
         except FileNotFoundError:
             try:
-                # Try mpg321 as fallback with infinite loop
+                # Try mpg321 as fallback with infinite loop (uses -l 0 instead of --loop -1)
                 current_music_process = subprocess.Popen(
-                    ['mpg321', '-q', '--loop', '-1', audio_file_path],
+                    ['mpg321', '-q', '-l', '0', audio_file_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
