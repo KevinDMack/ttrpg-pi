@@ -5,8 +5,9 @@ A solution for playing TTRPG music and managing map viewing on a Raspberry Pi
 
 This application runs on a Raspberry Pi (Ubuntu 22.04) and provides:
 - Automatic opening of https://owlbear.rodeo (or any configured website) on startup
-- A REST API to trigger playback of 8 different MP3 sound effects
-- Support for physical buttons connected to the Pi to trigger sounds
+- A REST API to trigger playback of 8 different MP3 music files on repeat
+- Support for physical buttons connected to the Pi to trigger music
+- Ability to stop currently playing music
 - Audio output through Bluetooth speaker or wired connection
 
 ## Hardware Requirements
@@ -58,6 +59,8 @@ Place your 8 MP3 files in the `audio/` directory with the following names:
 - `sound7.mp3`
 - `sound8.mp3`
 
+These files will play on repeat when triggered via the API or physical buttons.
+
 See `audio/README.md` for more details.
 
 ### 5. Configure the Website (Optional)
@@ -99,18 +102,25 @@ curl http://localhost:5000/health
 curl http://localhost:5000/config
 ```
 
-#### Play Sound (GET)
+#### Play Music (GET)
 ```bash
-curl http://localhost:5000/play/1  # Play sound 1
-curl http://localhost:5000/play/2  # Play sound 2
+curl http://localhost:5000/play/1  # Play music 1 on repeat
+curl http://localhost:5000/play/2  # Play music 2 on repeat
 # ... up to 8
 ```
 
-#### Play Sound (POST)
+**Note:** Playing a new music file will automatically stop the currently playing music.
+
+#### Play Music (POST)
 ```bash
 curl -X POST http://localhost:5000/play \
   -H "Content-Type: application/json" \
   -d '{"button": 1}'
+```
+
+#### Stop Music
+```bash
+curl http://localhost:5000/stop  # Stop currently playing music
 ```
 
 ### Connecting Physical Buttons
@@ -137,11 +147,11 @@ button_pins = {
 buttons = {num: Button(pin, pull_up=True) for num, pin in button_pins.items()}
 
 # Trigger API when button is pressed (using default parameter to capture value)
-def play_sound(button_num):
+def play_music(button_num):
     requests.get(f'http://localhost:5000/play/{button_num}')
 
 for num, button in buttons.items():
-    button.when_pressed = lambda n=num: play_sound(n)
+    button.when_pressed = lambda n=num: play_music(n)
 
 print("Button listener started")
 pause()

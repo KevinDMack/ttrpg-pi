@@ -48,6 +48,9 @@ def main():
     # Test config endpoint
     tests.append(test_endpoint("Config endpoint", f"{API_BASE}/config"))
     
+    # Test stop endpoint (should work even when nothing is playing)
+    tests.append(test_endpoint("Stop music endpoint", f"{API_BASE}/stop"))
+    
     # Test valid play endpoints (1-8)
     for i in range(1, 9):
         tests.append(test_endpoint(f"Play sound {i} (GET)", f"{API_BASE}/play/{i}"))

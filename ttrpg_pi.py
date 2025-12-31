@@ -20,8 +20,9 @@ app = Flask(__name__)
 CONFIG_FILE = Path(__file__).parent / "config.json"
 config = {}
 
-# Semaphore to limit concurrent audio playback to 3 simultaneous sounds
-audio_semaphore = threading.Semaphore(3)
+# Global variable to track the currently playing music process
+current_music_process = None
+music_lock = threading.Lock()
 
 def load_config():
     """Load configuration from config.json"""
@@ -88,27 +89,67 @@ def open_website():
             except FileNotFoundError:
                 print("Warning: Could not open browser. Please install chromium-browser, google-chrome, or firefox.")
 
-def play_audio(audio_file_path):
-    """Play an MP3 file using mpg123 or mpg321"""
-    # Acquire semaphore to limit concurrent playback
-    with audio_semaphore:
-        if not os.path.exists(audio_file_path):
-            raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
-        
-        # Ensure the path is absolute and safe
-        audio_file_path = os.path.abspath(audio_file_path)
+def stop_music():
+    """Stop the currently playing music"""
+    global current_music_process
+    with music_lock:
+        if current_music_process and current_music_process.poll() is None:
+            # Process is still running, terminate it
+            current_music_process.terminate()
+            try:
+                current_music_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate gracefully
+                current_music_process.kill()
+            current_music_process = None
+            return True
+        current_music_process = None
+        return False
+
+def play_music(audio_file_path):
+    """Play an MP3 file on loop using mpg123 or mpg321"""
+    global current_music_process
+    
+    if not os.path.exists(audio_file_path):
+        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+    
+    # Ensure the path is absolute and safe
+    audio_file_path = os.path.abspath(audio_file_path)
+    
+    with music_lock:
+        # Stop any currently playing music (inside the lock to avoid race conditions)
+        if current_music_process and current_music_process.poll() is None:
+            # Process is still running, terminate it
+            current_music_process.terminate()
+            try:
+                current_music_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate gracefully
+                current_music_process.kill()
         
         try:
-            # Try mpg123 first (recommended for Raspberry Pi)
-            subprocess.run(['mpg123', '-q', audio_file_path], check=True)
+            # Try mpg123 first (recommended for Raspberry Pi) with infinite loop
+            current_music_process = subprocess.Popen(
+                ['mpg123', '-q', '--loop', '-1', audio_file_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
         except FileNotFoundError:
             try:
-                # Try mpg321 as fallback
-                subprocess.run(['mpg321', '-q', audio_file_path], check=True)
+                # Try mpg321 as fallback with infinite loop (uses -l 0 instead of --loop -1)
+                current_music_process = subprocess.Popen(
+                    ['mpg321', '-q', '-l', '0', audio_file_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
             except FileNotFoundError:
                 try:
-                    # Try ffplay as another fallback
-                    subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', audio_file_path], check=True)
+                    # Try ffplay as another fallback with infinite loop
+                    current_music_process = subprocess.Popen(
+                        ['ffplay', '-nodisp', '-loglevel', 'quiet', '-loop', '0', audio_file_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
                 except FileNotFoundError:
                     raise RuntimeError("No MP3 player found. Please install mpg123, mpg321, or ffmpeg.")
 
@@ -118,11 +159,12 @@ def index():
     return jsonify({
         'name': 'TTRPG Pi API',
         'version': '1.0.0',
-        'description': 'API for playing sound effects on Raspberry Pi',
+        'description': 'API for playing music on Raspberry Pi',
         'endpoints': {
             '/': 'This help message',
-            '/play/<button_number>': 'Play sound effect for button 1-8 (GET)',
-            '/play': 'Play sound effect by button number in JSON body (POST)',
+            '/play/<button_number>': 'Play music for button 1-8 on repeat (GET)',
+            '/play': 'Play music by button number in JSON body on repeat (POST)',
+            '/stop': 'Stop currently playing music (GET)',
             '/config': 'Get current configuration',
             '/health': 'Health check endpoint'
         }
@@ -132,6 +174,21 @@ def index():
 def health():
     """Health check endpoint"""
     return jsonify({'status': 'ok'})
+
+@app.route('/stop', methods=['GET'])
+def stop():
+    """Stop currently playing music"""
+    stopped = stop_music()
+    if stopped:
+        return jsonify({
+            'status': 'stopped',
+            'message': 'Music playback stopped'
+        })
+    else:
+        return jsonify({
+            'status': 'no_music',
+            'message': 'No music was playing'
+        })
 
 @app.route('/config')
 def get_config():
@@ -180,8 +237,8 @@ def play_button(button_number):
         }), 404
     
     try:
-        # Play audio in a separate thread to not block the API response
-        threading.Thread(target=play_audio, args=(str(audio_file_path),), daemon=True).start()
+        # Play music in a separate thread to not block the API response
+        threading.Thread(target=play_music, args=(str(audio_file_path),), daemon=True).start()
         
         return jsonify({
             'status': 'playing',
